@@ -4,6 +4,7 @@
 
 import maxmind, { type CityResponse, type Reader } from 'maxmind';
 import { GEOIP_CONFIG } from '@tracearr/shared';
+import { isInLocalNetworks } from '../utils/localNetworks.js';
 
 export interface GeoLocation {
   city: string | null;
@@ -112,6 +113,11 @@ export class GeoIPService {
   }
 
   isPrivateIP(ip: string): boolean {
+    // User-configured local ranges (LOCAL_NETWORKS env var)
+    if (isInLocalNetworks(ip)) {
+      return true;
+    }
+
     // Handle IPv6 localhost
     if (ip === '::1' || ip === '::ffff:127.0.0.1') {
       return true;

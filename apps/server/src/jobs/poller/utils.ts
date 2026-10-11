@@ -7,6 +7,7 @@
 
 import type { ActiveSession } from '@tracearr/shared';
 import { normalizeClient } from '../../utils/platformNormalizer.js';
+import { isInLocalNetworks } from '../../utils/localNetworks.js';
 
 export const parseJellyfinClient = normalizeClient;
 
@@ -26,6 +27,7 @@ export const parseJellyfinClient = normalizeClient;
  */
 export function isPrivateIP(ip: string): boolean {
   if (!ip) return true;
+  if (isInLocalNetworks(ip)) return true;
 
   // IPv4 private ranges
   const privateIPv4 = [
