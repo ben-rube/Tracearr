@@ -14,7 +14,7 @@ import {
   getMediaLinks,
 } from '@/lib/utils';
 import { imageProxyUrl } from '@/lib/api';
-import { formatDuration } from '@/lib/formatters';
+import { formatDuration } from '@/lib/dateFormat';
 import { playbackBadge } from '@/lib/playbackBadge';
 import { useEstimatedProgress } from '@/hooks/useEstimatedProgress';
 import { useAuth } from '@/hooks/useAuth';
@@ -218,7 +218,7 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                       e.stopPropagation();
                       setShowTerminateDialog(true);
                     }}
-                    title="Terminate stream"
+                    title={t('pages:terminateStream.title')}
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -274,11 +274,13 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
             )}
             <span className="truncate">
               {formatLocationCompact(session.geoCity, session.geoRegion, session.geoCountry) ??
-                'Unknown location'}
+                t('pages:dashboard.unknownLocation')}
             </span>
             <LocalBadge isLocal={session.isLocal} country={session.geoCountry} />
           </span>
-          <span className="flex-shrink-0">{session.quality ?? 'Unknown quality'}</span>
+          <span className="flex-shrink-0">
+            {session.quality ?? t('pages:dashboard.unknownQuality')}
+          </span>
         </div>
       </ServerColorAccent>
 

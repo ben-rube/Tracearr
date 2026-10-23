@@ -16,6 +16,8 @@ import {
   parseLibraryItemsResponse,
   parseLibraryItem,
   parseItem,
+  parseDeviceSessions,
+  parseItemMediaSources,
 } from '../jellyfinEmbyParser.js';
 
 // ============================================================================
@@ -618,6 +620,44 @@ describe('parseLibraryItemsResponse', () => {
     expect(result[0]!.thumbPath).toBe('/Items/track-4/Images/Primary?tag=own');
   });
 
+  it('gives an Emby album with no own image the cover Emby reports from one of its tracks', () => {
+    const input = [
+      {
+        Id: '76952',
+        Name: '#SELFIE: The Remixes',
+        Type: 'MusicAlbum',
+        ImageTags: {},
+        PrimaryImageItemId: '70217',
+        PrimaryImageTag: '48364e5cd4c7cdac3b3c296999fecfc0_639047018375581113',
+        DateCreated: '2025-11-02T18:24:11Z',
+      },
+    ];
+
+    const result = parseLibraryItemsResponse(input);
+
+    expect(result[0]!.thumbPath).toBe(
+      '/Items/70217/Images/Primary?tag=48364e5cd4c7cdac3b3c296999fecfc0_639047018375581113'
+    );
+  });
+
+  it('points a track with no own image at the album image it inherits', () => {
+    const input = [
+      {
+        Id: 'track-5',
+        Name: 'Track',
+        Type: 'Audio',
+        ImageTags: {},
+        AlbumId: 'album-9',
+        PrimaryImageItemId: 'album-9',
+        PrimaryImageTag: 'albumtag',
+      },
+    ];
+
+    const result = parseLibraryItemsResponse(input);
+
+    expect(result[0]!.thumbPath).toBe('/Items/album-9/Images/Primary?tag=albumtag');
+  });
+
   it('gives an episode with no image the parent poster Jellyfin reports, else the series poster', () => {
     const input = [
       {
@@ -752,23 +792,26 @@ describe('parseLibraryItemsResponse', () => {
     expect(item!.musicBrainzId).toBe('f3e5c1a0-track');
   });
 
-  // MusicAlbum items aren't in ALLOWED_LIBRARY_ITEM_TYPES so never reach parseLibraryItemsResponse
-  // in production; parseLibraryItem itself is tested directly here.
   it('parses an album item, carrying its own parent artist as parentTitle/parentRatingKey', () => {
-    const item = parseLibraryItem({
-      Id: 'album456',
-      Name: 'Album Name',
-      Type: 'MusicAlbum',
-      AlbumArtist: 'Artist Name',
-      AlbumArtists: [{ Name: 'Artist Name', Id: 'artist789' }],
-      ProviderIds: { MusicBrainzAlbum: 'album-mbid' },
-      DateCreated: '2024-03-10T08:00:00Z',
-    });
+    const [item] = parseLibraryItemsResponse([
+      {
+        Id: 'album456',
+        Name: 'Album Name',
+        Type: 'MusicAlbum',
+        AlbumArtist: 'Artist Name',
+        AlbumArtists: [{ Name: 'Artist Name', Id: 'artist789' }],
+        ProviderIds: { MusicBrainzAlbum: 'album-mbid' },
+        ImageTags: { Primary: 'albumtag' },
+        DateCreated: '2024-03-10T08:00:00Z',
+      },
+    ]);
 
-    expect(item.mediaType).toBe('album');
-    expect(item.parentTitle).toBe('Artist Name');
-    expect(item.parentRatingKey).toBe('artist789');
-    expect(item.musicBrainzId).toBe('album-mbid');
+    expect(item!.mediaType).toBe('album');
+    expect(item!.parentTitle).toBe('Artist Name');
+    expect(item!.parentRatingKey).toBe('artist789');
+    expect(item!.musicBrainzId).toBe('album-mbid');
+    expect(item!.thumbPath).toBe('/Items/album456/Images/Primary?tag=albumtag');
+    expect(item!.addedAt).toEqual(new Date('2024-03-10T08:00:00Z'));
   });
 
   it('uses AlbumArtists ID for grandparentRatingKey on compilation albums', () => {
@@ -923,8 +966,8 @@ describe('parseLibraryItemsResponse', () => {
 
     const result = parseLibraryItemsResponse(input);
 
-    expect(result).toHaveLength(6);
-    expect(result.map((r) => r.ratingKey)).toEqual(['1', '9', '10', '11', '12', '14']);
+    expect(result).toHaveLength(7);
+    expect(result.map((r) => r.ratingKey)).toEqual(['1', '9', '10', '11', '12', '14', '15']);
     expect(result.map((r) => r.mediaType)).toEqual([
       'movie',
       'show',
@@ -932,6 +975,7 @@ describe('parseLibraryItemsResponse', () => {
       'episode',
       'track',
       'artist',
+      'album',
     ]);
   });
 
@@ -1153,3 +1197,99 @@ function twoSourcesFixture() {
     },
   ];
 }
+
+describe('download enrichment parsing', () => {
+  it('keeps idle device sessions from a raw /Sessions response', () => {
+    expect(
+      parseDeviceSessions([
+        {
+          UserId: '171eb71d15f048d9bf4757336999d2eb',
+          Client: 'Emby for iOS',
+          DeviceName: 'iPhone',
+          DeviceId: '22D01846-6841-432B-9C71-8CF676E49F0E',
+          RemoteEndPoint: '192.168.50.238',
+          TranscodingInfo: {
+            Bitrate: 1500000,
+            Width: 1280,
+            Height: 720,
+            VideoCodec: 'h264',
+            AudioCodec: 'aac',
+            Container: 'mp4',
+            CompletionPercentage: null,
+          },
+        },
+        {
+          Client: 'Tracearr',
+          DeviceName: 'Tracearr Server',
+          DeviceId: 'tracearr-server',
+          NowPlayingItem: { Id: 'bf01da2708ae716a7d2bd441376de12f' },
+        },
+      ])
+    ).toEqual([
+      {
+        userId: '171eb71d15f048d9bf4757336999d2eb',
+        deviceId: '22D01846-6841-432B-9C71-8CF676E49F0E',
+        client: 'Emby for iOS',
+        deviceName: 'iPhone',
+        remoteEndPoint: '192.168.50.238',
+        nowPlaying: false,
+        transcoding: {
+          bitrate: 1500000,
+          width: 1280,
+          height: 720,
+          videoCodec: 'h264',
+          audioCodec: 'aac',
+          container: 'mp4',
+          completionPercentage: null,
+        },
+      },
+      {
+        userId: null,
+        deviceId: 'tracearr-server',
+        client: 'Tracearr',
+        deviceName: 'Tracearr Server',
+        remoteEndPoint: null,
+        nowPlaying: true,
+        transcoding: null,
+      },
+    ]);
+  });
+
+  it('lists the MediaSources of an /Items?Ids=&Fields=MediaSources response', () => {
+    expect(
+      parseItemMediaSources({
+        Items: [
+          {
+            Id: 'bf01da2708ae716a7d2bd441376de12f',
+            MediaSources: [
+              {
+                Id: 'bf01da2708ae716a7d2bd441376de12f',
+                Size: 11980085714,
+                Container: 'mkv',
+                MediaStreams: [
+                  {
+                    Type: 'Video',
+                    Codec: 'hevc',
+                    Width: 3840,
+                    Height: 2160,
+                    VideoRangeType: 'HDR10',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      })
+    ).toEqual([
+      {
+        id: 'bf01da2708ae716a7d2bd441376de12f',
+        size: 11980085714,
+        container: 'mkv',
+        videoResolution: '4k',
+        videoCodec: 'HEVC',
+        videoDynamicRange: 'hdr10',
+      },
+    ]);
+    expect(parseItemMediaSources({ Items: [] })).toEqual([]);
+  });
+});

@@ -15,13 +15,14 @@ import { uuidArraySql } from '../../utils/sqlArrays.js';
 import { localSessionSql } from '../../utils/localSession.js';
 
 export const sessionsRoutes: FastifyPluginAsync = async (app) => {
+  const readSessions = { preHandler: [app.requirePermission('sessions', 'read')] };
   /**
    * GET /:id/sessions - Get user's session history (grouped by play)
    *
    * scope=identity expands the result to every account under the same
    * person that the caller can access.
    */
-  app.get('/:id/sessions', { preHandler: [app.authenticate] }, async (request, reply) => {
+  app.get('/:id/sessions', readSessions, async (request, reply) => {
     const params = userIdParamSchema.safeParse(request.params);
     if (!params.success) {
       return reply.badRequest('Invalid user ID');
@@ -37,7 +38,7 @@ export const sessionsRoutes: FastifyPluginAsync = async (app) => {
     const authUser = request.user;
     const offset = (page - 1) * pageSize;
 
-    const scoped = await resolveIdentityScopedServerUserIds(db, authUser, id, scope);
+    const scoped = await resolveIdentityScopedServerUserIds(db, authUser, id, scope, request.scope);
     if ('error' in scoped) {
       if (scoped.error === 'notFound') {
         return reply.notFound('User not found');
@@ -131,7 +132,11 @@ export const sessionsRoutes: FastifyPluginAsync = async (app) => {
         s.bitrate,
         s.last_paused_at
       FROM grouped_sessions gs
-      JOIN sessions s ON s.id = gs.first_session_id
+      -- gs.started_at is not a planner-time constant; the InitPlan bounds are what let
+      -- TimescaleDB exclude chunks at runtime
+      JOIN sessions s ON s.id = gs.first_session_id AND s.started_at = gs.started_at
+        AND s.started_at >= (SELECT MIN(started_at) FROM grouped_sessions)
+        AND s.started_at <= (SELECT MAX(started_at) FROM grouped_sessions)
       JOIN servers sv ON sv.id = s.server_id
       ORDER BY gs.started_at DESC
     `);

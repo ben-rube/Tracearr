@@ -34,7 +34,7 @@ const ServerTypeEnum = z.enum(['plex', 'jellyfin', 'emby']);
 const MediaTypeEnum = z.enum(['movie', 'episode', 'track', 'live', 'photo', 'trailer', 'unknown']);
 const PlaybackStateEnum = z.enum(['playing', 'paused', 'stopped']);
 const SeverityEnum = z.enum(['low', 'warning', 'high']);
-const UserRoleEnum = z.enum(['owner', 'admin', 'viewer', 'member', 'disabled', 'pending']);
+const UserRoleEnum = z.enum(['owner', 'admin', 'member', 'disabled', 'pending']);
 const TranscodeDecisionEnum = z.enum(['directplay', 'copy', 'transcode']);
 
 // ============================================================================
@@ -300,13 +300,22 @@ const StatsTodayQuery = z.object({
 const StatsTodayResponse = z
   .object({
     activeStreams: z.number().int().openapi({ example: 5 }),
-    todayPlays: z
-      .number()
-      .int()
-      .openapi({ description: 'Validated plays (>= 2 min)', example: 47 }),
+    todayPlays: z.number().int().openapi({
+      description:
+        'Counted plays of movies, episodes and music tracks today (>= 2 min or past the watched threshold)',
+      example: 47,
+    }),
+    todaySessions: z.number().int().openapi({
+      description:
+        'Plays of movies, episodes and music tracks started today, including ones too short to count',
+      example: 52,
+    }),
     watchTimeHours: z.number().openapi({ description: 'Hours watched today', example: 12.5 }),
     alertsLast24h: z.number().int().openapi({ example: 3 }),
-    activeUsersToday: z.number().int().openapi({ example: 8 }),
+    activeUsersToday: z.number().int().openapi({
+      description: 'People who played a movie, episode or music track today',
+      example: 8,
+    }),
     timestamp: z.iso.datetime(),
   })
   .openapi('StatsTodayResponse');
@@ -379,13 +388,10 @@ const ConcurrentDataPoint = z.object({
     .number()
     .int()
     .openapi({ description: 'Every transcode, audio-only ones included', example: 2 }),
-  audioTranscode: z
-    .number()
-    .int()
-    .openapi({
-      description: 'Of the transcodes, those where only the audio is transcoded',
-      example: 1,
-    }),
+  audioTranscode: z.number().int().openapi({
+    description: 'Of the transcodes, those where only the audio is transcoded',
+    example: 1,
+  }),
 });
 
 const DayOfWeekDataPoint = z.object({
@@ -412,13 +418,10 @@ const QualityBreakdown = z
       .number()
       .int()
       .openapi({ description: 'Every transcode, audio-only ones included', example: 120 }),
-    audioTranscode: z
-      .number()
-      .int()
-      .openapi({
-        description: 'Of the transcodes, those where only the audio is transcoded',
-        example: 45,
-      }),
+    audioTranscode: z.number().int().openapi({
+      description: 'Of the transcodes, those where only the audio is transcoded',
+      example: 45,
+    }),
     total: z.number().int().openapi({ example: 410 }),
     directPlayPercent: z.number().int().openapi({ description: 'Rounded percentage', example: 57 }),
     directStreamPercent: z.number().int().openapi({ example: 14 }),
@@ -522,13 +525,10 @@ const ServerStreamSummary = z
     ...ServerInfo.shape,
     total: z.number().int().openapi({ example: 3 }),
     transcodes: z.number().int().openapi({ example: 1 }),
-    audioTranscodes: z
-      .number()
-      .int()
-      .openapi({
-        description: 'Of the transcodes, those where only the audio is transcoded',
-        example: 0,
-      }),
+    audioTranscodes: z.number().int().openapi({
+      description: 'Of the transcodes, those where only the audio is transcoded',
+      example: 0,
+    }),
     directStreams: z.number().int().openapi({ example: 1 }),
     directPlays: z.number().int().openapi({ example: 1 }),
     totalBitrate: z.string().openapi({ example: '22.5 Mbps' }),
@@ -539,13 +539,10 @@ const StreamsSummary = z
   .object({
     total: z.number().int().openapi({ example: 5 }),
     transcodes: z.number().int().openapi({ example: 2 }),
-    audioTranscodes: z
-      .number()
-      .int()
-      .openapi({
-        description: 'Of the transcodes, those where only the audio is transcoded',
-        example: 1,
-      }),
+    audioTranscodes: z.number().int().openapi({
+      description: 'Of the transcodes, those where only the audio is transcoded',
+      example: 1,
+    }),
     directStreams: z.number().int().openapi({ example: 1 }),
     directPlays: z.number().int().openapi({ example: 2 }),
     totalBitrate: z.string().openapi({ example: '45.2 Mbps' }),
