@@ -209,9 +209,10 @@ export const libraryStaleRoute: FastifyPluginAsync = async (app) => {
         ),
         ident_keys AS MATERIALIZED (
           -- The rating keys whose plays count for an identity: each entry's
-          -- own key, or its children's for shows/artists. Tombstoned entries
-          -- of the same title are included, so plays recorded under a
-          -- re-added title's old key still count.
+          -- own key, or its live children's for shows/artists. Tombstoned
+          -- entries of the same title are included, so plays recorded under a
+          -- re-added movie's old key still count; plays of removed episodes or
+          -- tracks never count, whether or not the show kept its key.
           SELECT e.ident, e.server_id, COALESCE(child.rating_key, e.rating_key) AS rating_key
           FROM (
             SELECT ident, server_id, rating_key, media_type, false AS removed FROM top_items
@@ -228,7 +229,7 @@ export const libraryStaleRoute: FastifyPluginAsync = async (app) => {
           LEFT JOIN library_items child ON e.media_type IN ('show', 'artist')
             AND child.grandparent_rating_key = e.rating_key
             AND child.server_id = e.server_id
-            AND (child.removed_at IS NULL OR e.removed)
+            AND child.removed_at IS NULL
         ),
         key_watch AS MATERIALIZED (
           SELECT sess.server_id, sess.rating_key,
