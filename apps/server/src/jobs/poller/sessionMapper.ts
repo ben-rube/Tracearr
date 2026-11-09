@@ -11,7 +11,7 @@ import type { MediaSession } from '../../services/mediaServer/types.js';
 import type { ProcessedSession } from './types.js';
 import { normalizeClient } from '../../utils/platformNormalizer.js';
 import { formatQualityString } from '../../utils/resolutionNormalizer.js';
-import { isLocalSession } from '../../utils/localSession.js';
+import { isLocalSession } from '../../db/sessions/rules.js';
 import type { sessions } from '../../db/schema.js';
 
 /** Set of valid media types for O(1) validation */
@@ -89,9 +89,7 @@ export function extractStreamDetailsFromQuality(
  * Pick stream detail fields from any object that has them.
  * Useful for DB inserts where we spread ProcessedSession fields.
  */
-export function pickStreamDetailFields<T extends StreamDetailFields>(
-  source: T
-): StreamDetailFields {
+export function pickStreamDetailFields(source: StreamDetailFields): StreamDetailFields {
   return {
     sourceVideoCodec: source.sourceVideoCodec,
     sourceAudioCodec: source.sourceAudioCodec,

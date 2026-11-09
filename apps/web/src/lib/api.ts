@@ -89,9 +89,7 @@ import type {
   VersionInfo,
   WhatsNewState,
   EngagementStats,
-  ShowStatsResponse,
   SetupStatus,
-  MediaType,
   ServerConnectionStatus,
   ServerLocationEntry,
   ServerLocationsResponse,
@@ -130,6 +128,7 @@ import type {
   MergeSuggestion,
   DismissedMergeSuggestion,
   ServerUserSplitResult,
+  OwnerLinkServer,
   UserSortField,
   UserRosterFilters,
   ListResponse,
@@ -166,6 +165,7 @@ import type {
   UserRangeStats,
   PeopleResponse,
   PeopleRank,
+  StorageWarning,
 } from '@tracearr/shared';
 
 // Re-export shared types needed by frontend components
@@ -301,6 +301,31 @@ function listSearchParams(params: Record<string, unknown>): string {
   }
   return searchParams.toString();
 }
+
+/** The filters /library/catalog and /library/catalog/letters share. */
+type CatalogRequestParams = {
+  type: LibraryMediaType;
+  serverIds?: string[];
+  resolution?: string;
+  genre?: string;
+  yearFrom?: number;
+  yearTo?: number;
+  watched?: WatchedState;
+  lens?: string;
+  search?: string;
+  sort?: 'title' | 'added' | 'year' | 'plays' | 'watch_time' | 'viewers';
+  libraryKey?: string;
+  hdr?: boolean;
+  atmos?: boolean;
+  sizeGbMin?: number;
+  sizeGbMax?: number;
+  videoCodec?: string;
+  audioCodec?: string;
+  audioChannels?: string;
+  /** Calendar days, inclusive. */
+  addedAfter?: string;
+  addedBefore?: string;
+};
 
 /** The filters /sessions/history and /sessions/history/aggregates share. */
 function appendHistoryFilterParams(
@@ -976,6 +1001,19 @@ class ApiClient {
       this.request<void>(`/users/merge-suggestions/dismissals/${userA}/${userB}`, {
         method: 'DELETE',
       }),
+    ownerLinks: async () => {
+      const response = await this.request<{ data: OwnerLinkServer[] }>('/users/owner-links');
+      return response.data;
+    },
+    linkOwnerAccount: (serverUserId: string) =>
+      this.request<UserMergeResult>('/users/owner-links', {
+        method: 'POST',
+        body: JSON.stringify({ serverUserId }),
+      }),
+    unlinkOwnerAccount: (serverUserId: string) =>
+      this.request<ServerUserSplitResult>(`/users/owner-links/${serverUserId}`, {
+        method: 'DELETE',
+      }),
     requests: (id: string, opts: { scope?: 'identity'; page: number; pageSize: number }) => {
       const searchParams = new URLSearchParams();
       if (opts.scope) searchParams.set('scope', opts.scope);
@@ -1069,7 +1107,11 @@ class ApiClient {
       const query = params.toString();
       return this.request<ActiveSessionsResponse>(`/sessions/active${query ? `?${query}` : ''}`);
     },
-    get: (id: string) => this.request<SessionWithDetails>(`/sessions/${id}`),
+    // startedAt only narrows the server's read to the chunks after it; the id alone works too
+    get: (id: string, startedAt?: Date | string) =>
+      this.request<SessionWithDetails>(
+        `/sessions/${id}${startedAt ? `?startedAt=${new Date(startedAt).toISOString()}` : ''}`
+      ),
     terminate: (id: string, reason?: string) =>
       this.request<{ success: boolean; terminationLogId: string; message: string }>(
         `/sessions/${id}/terminate`,
@@ -1178,6 +1220,8 @@ class ApiClient {
     get: (id: string) => this.request<ViolationWithDetails>(`/violations/${id}`),
     list: (params: ViolationListParams = {}) =>
       this.request<ListResponse<ViolationWithDetails>>(`/violations?${listSearchParams(params)}`),
+    count: (params: Partial<ViolationRosterFilters> = {}) =>
+      this.request<{ total: number }>(`/violations/count?${listSearchParams(params)}`),
     acknowledge: (id: string) =>
       this.request<{ success: boolean; acknowledgedAt: Date | null }>(`/violations/${id}`, {
         method: 'PATCH',
@@ -1379,34 +1423,14 @@ class ApiClient {
     engagement: async (
       timeRange?: StatsTimeRange,
       serverIds?: string[],
-      options?: { mediaType?: MediaType; limit?: number; self?: boolean }
+      options?: { self?: boolean }
     ) => {
       const params = this.buildStatsParamsMulti(
         timeRange ?? { period: 'week' },
         serverIds,
         options?.self
       );
-      if (options?.mediaType) params.set('mediaType', options.mediaType);
-      if (options?.limit) params.set('limit', String(options.limit));
       return this.request<EngagementStats>(`/stats/engagement?${params.toString()}`);
-    },
-    shows: async (
-      timeRange?: StatsTimeRange,
-      serverIds?: string[],
-      options?: {
-        limit?: number;
-        orderBy?: 'totalEpisodeViews' | 'totalWatchHours' | 'bingeScore' | 'uniqueViewers';
-        self?: boolean;
-      }
-    ) => {
-      const params = this.buildStatsParamsMulti(
-        timeRange ?? { period: 'month' },
-        serverIds,
-        options?.self
-      );
-      if (options?.limit) params.set('limit', String(options.limit));
-      if (options?.orderBy) params.set('orderBy', options.orderBy);
-      return this.request<ShowStatsResponse>(`/stats/shows?${params.toString()}`);
     },
 
     // Device compatibility stats
@@ -1736,102 +1760,10 @@ class ApiClient {
         `/library/status?${params.toString()}`
       );
     },
-    catalog: (params: {
-      type: LibraryMediaType;
-      serverIds?: string[];
-      resolution?: string;
-      genre?: string;
-      yearFrom?: number;
-      yearTo?: number;
-      watched?: WatchedState;
-      lens?: string;
-      search?: string;
-      sort?: 'title' | 'added' | 'year' | 'plays' | 'watch_time' | 'viewers';
-      offset?: number;
-      pageSize?: number;
-      libraryKey?: string;
-      hdr?: boolean;
-      atmos?: boolean;
-      sizeGbMin?: number;
-      sizeGbMax?: number;
-      videoCodec?: string;
-      audioCodec?: string;
-      audioChannels?: string;
-    }) => {
-      const searchParams = new URLSearchParams();
-      searchParams.set('type', params.type);
-      if (params.serverIds?.length) {
-        for (const id of params.serverIds) {
-          searchParams.append('serverIds', id);
-        }
-      }
-      if (params.resolution) searchParams.set('resolution', params.resolution);
-      if (params.genre) searchParams.set('genre', params.genre);
-      if (params.yearFrom !== undefined) searchParams.set('yearFrom', String(params.yearFrom));
-      if (params.yearTo !== undefined) searchParams.set('yearTo', String(params.yearTo));
-      if (params.watched) searchParams.set('watched', params.watched);
-      if (params.lens) searchParams.set('lens', params.lens);
-      if (params.search) searchParams.set('search', params.search);
-      if (params.sort) searchParams.set('sort', params.sort);
-      if (params.offset !== undefined) searchParams.set('offset', String(params.offset));
-      if (params.pageSize) searchParams.set('pageSize', String(params.pageSize));
-      if (params.libraryKey) searchParams.set('libraryKey', params.libraryKey);
-      if (params.hdr) searchParams.set('hdr', 'true');
-      if (params.atmos) searchParams.set('atmos', 'true');
-      if (params.sizeGbMin !== undefined) searchParams.set('sizeGbMin', String(params.sizeGbMin));
-      if (params.sizeGbMax !== undefined) searchParams.set('sizeGbMax', String(params.sizeGbMax));
-      if (params.videoCodec) searchParams.set('videoCodec', params.videoCodec);
-      if (params.audioCodec) searchParams.set('audioCodec', params.audioCodec);
-      if (params.audioChannels) searchParams.set('audioChannels', params.audioChannels);
-      return this.request<CatalogResponse>(`/library/catalog?${searchParams.toString()}`);
-    },
-    catalogLetters: (params: {
-      type: LibraryMediaType;
-      serverIds?: string[];
-      resolution?: string;
-      genre?: string;
-      yearFrom?: number;
-      yearTo?: number;
-      watched?: WatchedState;
-      lens?: string;
-      search?: string;
-      sort?: 'title' | 'added' | 'year' | 'plays' | 'watch_time' | 'viewers';
-      libraryKey?: string;
-      hdr?: boolean;
-      atmos?: boolean;
-      sizeGbMin?: number;
-      sizeGbMax?: number;
-      videoCodec?: string;
-      audioCodec?: string;
-      audioChannels?: string;
-    }) => {
-      const searchParams = new URLSearchParams();
-      searchParams.set('type', params.type);
-      if (params.serverIds?.length) {
-        for (const id of params.serverIds) {
-          searchParams.append('serverIds', id);
-        }
-      }
-      if (params.resolution) searchParams.set('resolution', params.resolution);
-      if (params.genre) searchParams.set('genre', params.genre);
-      if (params.yearFrom !== undefined) searchParams.set('yearFrom', String(params.yearFrom));
-      if (params.yearTo !== undefined) searchParams.set('yearTo', String(params.yearTo));
-      if (params.watched) searchParams.set('watched', params.watched);
-      if (params.lens) searchParams.set('lens', params.lens);
-      if (params.search) searchParams.set('search', params.search);
-      if (params.sort) searchParams.set('sort', params.sort);
-      if (params.libraryKey) searchParams.set('libraryKey', params.libraryKey);
-      if (params.hdr) searchParams.set('hdr', 'true');
-      if (params.atmos) searchParams.set('atmos', 'true');
-      if (params.sizeGbMin !== undefined) searchParams.set('sizeGbMin', String(params.sizeGbMin));
-      if (params.sizeGbMax !== undefined) searchParams.set('sizeGbMax', String(params.sizeGbMax));
-      if (params.videoCodec) searchParams.set('videoCodec', params.videoCodec);
-      if (params.audioCodec) searchParams.set('audioCodec', params.audioCodec);
-      if (params.audioChannels) searchParams.set('audioChannels', params.audioChannels);
-      return this.request<CatalogLettersResponse>(
-        `/library/catalog/letters?${searchParams.toString()}`
-      );
-    },
+    catalog: (params: CatalogRequestParams & { offset?: number; pageSize?: number }) =>
+      this.request<CatalogResponse>(`/library/catalog?${listSearchParams(params)}`),
+    catalogLetters: (params: CatalogRequestParams) =>
+      this.request<CatalogLettersResponse>(`/library/catalog/letters?${listSearchParams(params)}`),
     shelves: (
       params: {
         timeRange?: StatsTimeRange;
@@ -1964,6 +1896,9 @@ class ApiClient {
       this.request<{ token: string }>('/settings/api-key/regenerate', { method: 'POST' }),
     getIpWarning: () =>
       this.request<{ showWarning: boolean; stateHash: string }>('/settings/ip-warning'),
+    getStorageWarning: () => this.request<StorageWarning>('/settings/storage-warning'),
+    dismissStorageWarning: () =>
+      this.request<void>('/settings/storage-warning/dismiss', { method: 'POST' }),
     getImageCache: () => this.request<ImageCacheStatus>('/settings/image-cache'),
   };
 

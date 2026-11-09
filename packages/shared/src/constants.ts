@@ -208,13 +208,13 @@ export const REDIS_KEYS = {
     return `${_redisPrefix}tracearr:library:roi:v2`;
   },
   get LIBRARY_PATTERNS() {
-    return `${_redisPrefix}tracearr:library:patterns`;
+    return `${_redisPrefix}tracearr:library:patterns:v2`;
   },
   get LIBRARY_TOP_MOVIES() {
-    return `${_redisPrefix}tracearr:library:top-movies`;
+    return `${_redisPrefix}tracearr:library:top-movies:v2`;
   },
   get LIBRARY_TOP_SHOWS() {
-    return `${_redisPrefix}tracearr:library:top-shows`;
+    return `${_redisPrefix}tracearr:library:top-shows:v2`;
   },
   get LIBRARY_CODECS() {
     return `${_redisPrefix}tracearr:library:codecs:v2`;
@@ -320,13 +320,9 @@ export const REDIS_KEYS = {
     `${_redisPrefix}session:lock:${serverId}:${sessionKey}`,
   TERMINATION_COOLDOWN: (serverId: string, sessionKey: string, ratingKey: string) =>
     `${_redisPrefix}termination:cooldown:${serverId}:${sessionKey}:${ratingKey}`,
-  TERMINATION_COOLDOWN_COMPOSITE: (
-    serverId: string,
-    serverUserId: string,
-    deviceId: string,
-    ratingKey: string
-  ) =>
-    `${_redisPrefix}termination:cooldown:composite:${serverId}:${serverUserId}:${deviceId}:${ratingKey}`,
+  // Hash of Jellyfin/Emby kills on one server, field = the poller's session key
+  TERMINATION_COOLDOWNS_COMPOSITE: (serverId: string) =>
+    `${_redisPrefix}termination:cooldown:composite:${serverId}`,
   // Per-action cooldown on one target. The key string keeps its v1 shape so
   // cooldowns already armed in Redis stay honoured.
   ACTION_COOLDOWN: (automationId: string, targetId: string) =>
@@ -346,6 +342,13 @@ export const REDIS_KEYS = {
   // Filter options caching
   FILTER_OPTIONS: (userId: string, scopeHash: string) =>
     `${_redisPrefix}tracearr:filter-options:v2:${userId}:${scopeHash}`,
+  // History totals for one filter set
+  HISTORY_AGGREGATES: (scopeHash: string) =>
+    `${_redisPrefix}tracearr:history-aggregates:v2:${scopeHash}`,
+  // Distinct-IP check behind the Settings IP warning
+  get IP_WARNING() {
+    return `${_redisPrefix}tracearr:settings:ip-warning`;
+  },
   // A member's non-removed server account ids and their servers
   USER_SCOPE: (userId: string) => `${_redisPrefix}tracearr:scope:${userId}`,
   // v1 segment invalidates cached entries if the GeoLocation shape ever changes
@@ -407,6 +410,8 @@ export const CACHE_TTL = {
   PUSH_SESSIONS_SYNC: 1200,
   // Filter options (dropdown values change infrequently)
   FILTER_OPTIONS: 120, // 2 minutes
+  HISTORY_AGGREGATES: 60, // 1 minute, the web app's own staleTime for the totals
+  IP_WARNING: 300, // 5 minutes
   PLEX_GEOIP: 86400,
   // Fail-open: short negative cache keeps a down plex.tv from being hit every poll tick
   PLEX_GEOIP_NEGATIVE: 600,

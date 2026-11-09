@@ -16,6 +16,7 @@ import {
   loadEvaluationContext,
   loadServerContext,
   serverContextFor,
+  toRuleSession,
 } from './contextAssembly.js';
 import { dispatch } from './dispatcher.js';
 import { matchesTrigger } from './evaluate.js';
@@ -24,10 +25,13 @@ import type {
   EvaluationInputs,
   EvaluationServer,
   EvaluationServerUser,
+  SessionRow,
   SessionStopReason,
+  SessionWatchedEvent,
   TriggerType,
 } from './types.js';
 import type { MediaQuality, MediaSubject } from '../types.js';
+import type { ViolationInsertResult } from '../../../jobs/poller/violations.js';
 import type { TrustMove } from '../../userService.js';
 import type { NewsletterSendPayload } from '../../notifications/events.js';
 
@@ -56,12 +60,15 @@ async function serverListeningRules(
   return scoped.length > 0 ? scoped : null;
 }
 
-/** Whether anything on this server listens for either media trigger, before the sync pays for a diff. */
-export async function hasMediaListeners(serverId: string): Promise<boolean> {
-  const added = await serverListeningRules('media.added', serverId);
-  if (added) return true;
-  const upgraded = await serverListeningRules('media.upgraded', serverId);
-  return upgraded !== null;
+/** Which media triggers anything on this server listens for, before the sync pays for a diff. */
+export async function mediaListeners(
+  serverId: string
+): Promise<{ added: boolean; upgraded: boolean }> {
+  const [added, upgraded] = await Promise.all([
+    serverListeningRules('media.added', serverId),
+    serverListeningRules('media.upgraded', serverId),
+  ]);
+  return { added: added !== null, upgraded: upgraded !== null };
 }
 
 /** Producers run after the write they announce, so a failed read must not unwind the caller. */
@@ -107,6 +114,46 @@ export async function dispatchSessionStopped(
       context.inputs
     );
   });
+}
+
+/** The event for the tick that crossed the watched threshold; the poller builds it with its own inputs. */
+export function sessionWatchedEvent(
+  row: SessionRow,
+  live: Partial<Session>,
+  at: Date,
+  server: EvaluationServer,
+  serverUser: EvaluationServerUser
+): SessionWatchedEvent {
+  return {
+    type: 'session.watched',
+    at,
+    server,
+    serverUser,
+    session: toRuleSession(row, { ...live, watched: true }),
+  };
+}
+
+/**
+ * The SSE paths flip the watched flag without the poller's tick inputs, so this reads the
+ * context only when an automation listens. Violations come back for the caller to broadcast.
+ */
+export async function dispatchSessionWatched(
+  row: SessionRow,
+  live: Partial<Session>,
+  at: Date
+): Promise<ViolationInsertResult[]> {
+  let violations: ViolationInsertResult[] = [];
+  await guarded('session.watched', async () => {
+    const rules = await listeningRules('session.watched');
+    if (!rules) return;
+    const context = await loadEvaluationContext(row.serverId, row.serverUserId, rules);
+    if (!context) return;
+    ({ violations } = await dispatch(
+      sessionWatchedEvent(row, live, at, context.server, context.serverUser),
+      context.inputs
+    ));
+  });
+  return violations;
 }
 
 /**
