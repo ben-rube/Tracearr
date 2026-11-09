@@ -518,10 +518,16 @@
         },
         "allTypes": "All Types",
         "threshold": {
+          "days7": "Unwatched for 7+ days",
+          "days14": "Unwatched for 14+ days",
+          "days30": "Unwatched for 30+ days",
+          "days60": "Unwatched for 60+ days",
           "months3": "Unwatched for 3+ months",
           "months6": "Unwatched for 6+ months",
           "year1": "Unwatched for 1+ year",
-          "years2": "Unwatched for 2+ years"
+          "years2": "Unwatched for 2+ years",
+          "custom": "Custom…",
+          "customDays": "days unwatched"
         },
         "age": {
           "days_one": "{{count}} day",

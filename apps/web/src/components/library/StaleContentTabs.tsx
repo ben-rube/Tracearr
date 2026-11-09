@@ -23,6 +23,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useLibraryStale } from '@/hooks/queries/useLibrary';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { NumericInput } from '@/components/ui/numeric-input';
 import { useServerColorMap } from '@/hooks/useServerColorMap';
 import { ServerColumnCell } from '@/components/server';
 import { formatStaleTime } from '@/lib/dateFormat';
@@ -87,7 +89,7 @@ interface StaleContentTabsProps {
 
 /**
  * Tabbed component for displaying never-watched and stale content.
- * Includes a threshold selector for the "stale" category (3m/6m/1y/2y).
+ * Includes a threshold selector for the "stale" category (7d–2y presets or a custom number of days).
  */
 export function StaleContentTabs({
   serverIds,
@@ -99,6 +101,9 @@ export function StaleContentTabs({
 
   const [activeTab, setActiveTab] = useState<'never-watched' | 'stale'>('never-watched');
   const [staleDays, setStaleDays] = useState('90');
+  const [customDays, setCustomDays] = useState(14);
+  const debouncedCustomDays = useDebouncedValue(customDays, 400);
+  const effectiveStaleDays = staleDays === 'custom' ? debouncedCustomDays : Number(staleDays);
   const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaTypeFilter>('all');
   const [neverWatchedPage, setNeverWatchedPage] = useState(1);
   const [stalePage, setStalePage] = useState(1);
@@ -141,7 +146,7 @@ export function StaleContentTabs({
   const stale = useLibraryStale(
     serverIds,
     libraryId,
-    Number(staleDays),
+    effectiveStaleDays,
     'stale',
     stalePage,
     20,
@@ -331,12 +336,37 @@ export function StaleContentTabs({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="7">{t('library.storage.stale.threshold.days7')}</SelectItem>
+                <SelectItem value="14">{t('library.storage.stale.threshold.days14')}</SelectItem>
+                <SelectItem value="30">{t('library.storage.stale.threshold.days30')}</SelectItem>
+                <SelectItem value="60">{t('library.storage.stale.threshold.days60')}</SelectItem>
                 <SelectItem value="90">{t('library.storage.stale.threshold.months3')}</SelectItem>
                 <SelectItem value="180">{t('library.storage.stale.threshold.months6')}</SelectItem>
                 <SelectItem value="365">{t('library.storage.stale.threshold.year1')}</SelectItem>
                 <SelectItem value="730">{t('library.storage.stale.threshold.years2')}</SelectItem>
+                <SelectItem value="custom">
+                  {t('library.storage.stale.threshold.custom')}
+                </SelectItem>
               </SelectContent>
             </Select>
+          )}
+          {activeTab === 'stale' && staleDays === 'custom' && (
+            <div className="flex items-center gap-1">
+              <NumericInput
+                className="w-20"
+                aria-label={t('library.storage.stale.threshold.customDays')}
+                value={customDays}
+                min={1}
+                max={3650}
+                onChange={(v) => {
+                  setCustomDays(v);
+                  setStalePage(1);
+                }}
+              />
+              <span className="text-muted-foreground text-sm">
+                {t('library.storage.stale.threshold.customDays')}
+              </span>
+            </div>
           )}
         </div>
       </div>
