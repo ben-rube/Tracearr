@@ -27,13 +27,13 @@ import {
   sessions,
   users,
 } from '../../db/schema.js';
-import { sessionRowById } from '../../db/sessionRow.js';
+import { ACTIVE_SESSION_CHUNK_BOUND_MS, sessionRowById } from '../../db/sessions/row.js';
 import { getGeoIPSettings } from '../../routes/settings.js';
 import { isMaintenance } from '../../serverState.js';
 import { isLeader } from '../../services/leaderLease.js';
 import { requestSyncForUnknownKeys } from '../../services/libraryEventSync.js';
 import { isLiveRow } from '../../services/liveServers.js';
-import type { CacheService, PubSubService } from '../../services/cache.js';
+import type { CacheService, PubSubService, TerminationCooldown } from '../../services/cache.js';
 import { geoipService } from '../../services/geoip.js';
 import { createMediaServerClient } from '../../services/mediaServer/index.js';
 import { resolveSessionGeo, type SessionGeo } from '../../services/serverLocations.js';
@@ -46,6 +46,7 @@ import { dispatch } from '../../services/automations/events/dispatcher.js';
 import {
   dispatchServerHealth,
   dispatchSessionFirstSeen,
+  sessionWatchedEvent,
 } from '../../services/automations/events/producers.js';
 import { registerRuleSubscribers } from '../../services/automations/events/subscribers.js';
 import {
@@ -94,6 +95,7 @@ import {
   checkWatchCompletion,
   createInitialConfirmationState,
   detectMediaChange,
+  isLeftoverOfKill,
   shouldForceStopStaleSession,
   shouldWriteToDb,
 } from './stateTracker.js';
@@ -196,11 +198,6 @@ const defaultConfig: PollerConfig = {
   enabled: true,
   intervalMs: POLLING_INTERVALS.SESSIONS_IDLE,
 };
-
-// Time bound for active session queries to limit TimescaleDB chunk scanning.
-// Active sessions should only exist in recent chunks - anything older would have
-// been force-stopped by the stale session sweep. 7 days gives ample buffer.
-const ACTIVE_SESSION_CHUNK_BOUND_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Grace period tracking for session stop detection. Reads and writes here
 // must happen only while holding serverPollLocks for the session's server -
@@ -740,8 +737,39 @@ async function processServerSessions(
 
     const processedSessions = mediaSessions.map((s) => mapMediaSession(s, server.type));
 
+    const killCooldowns =
+      server.type !== 'plex' && cacheService
+        ? await cacheService.getTerminationCooldownsComposite(server.id)
+        : new Map<string, TerminationCooldown>();
+    const wasJustKilled = async (
+      processed: ProcessedSession,
+      sessionKey: string
+    ): Promise<boolean> => {
+      if (!cacheService || !processed.ratingKey) return false;
+      if (server.type === 'plex') {
+        return cacheService.hasTerminationCooldown(
+          server.id,
+          processed.sessionKey,
+          processed.ratingKey
+        );
+      }
+      const kill = killCooldowns.get(sessionKey);
+      if (!kill) return false;
+      if (isLeftoverOfKill(kill, processed.progressMs, Date.now())) return true;
+      killCooldowns.delete(sessionKey);
+      await cacheService.clearTerminationCooldownsComposite(server.id, [sessionKey]);
+      return false;
+    };
+    // The client reported its stop once the server stops listing the killed playback, so
+    // whatever that device plays next is a new playback.
+    const clearKillsNotListed = async (listed: Set<string>) => {
+      const gone = [...killCooldowns.keys()].filter((key) => !listed.has(key));
+      if (gone.length > 0) await cacheService?.clearTerminationCooldownsComposite(server.id, gone);
+    };
+
     // OPTIMIZATION: Early return if no active sessions from media server
     if (processedSessions.length === 0) {
+      await clearKillsNotListed(new Set());
       // Snapshot keys already in grace period BEFORE adding new entries
       const keysToSweep = new Set(
         [...missedPollTracking.keys()].filter((k) => k.startsWith(`${server.id}:`))
@@ -1173,27 +1201,11 @@ async function processServerSessions(
               return { rediscovered: existingWithSameKey };
             }
 
-            // Check if this session was recently terminated (cooldown prevents re-creation)
-            if (cacheService && processed.ratingKey) {
-              const hasCooldown =
-                server.type === 'plex'
-                  ? await cacheService.hasTerminationCooldown(
-                      server.id,
-                      processed.sessionKey,
-                      processed.ratingKey
-                    )
-                  : await cacheService.hasTerminationCooldownComposite(
-                      server.id,
-                      userDetail.id,
-                      processed.deviceId || processed.sessionKey,
-                      processed.ratingKey
-                    );
-              if (hasCooldown) {
-                console.log(
-                  `[Poller] Session ${processed.sessionKey} was recently terminated, skipping create`
-                );
-                return null;
-              }
+            if (await wasJustKilled(processed, sessionKey)) {
+              console.log(
+                `[Poller] Session ${processed.sessionKey} was recently terminated, skipping create`
+              );
+              return null;
             }
 
             // Duplicate check: Plex-only (JF/Emby use composite keys)
@@ -1433,27 +1445,11 @@ async function processServerSessions(
                   return null;
                 }
 
-                // Check if this session was recently terminated (cooldown prevents re-creation)
-                if (processed.ratingKey) {
-                  const hasCooldown =
-                    server.type === 'plex'
-                      ? await cacheService!.hasTerminationCooldown(
-                          server.id,
-                          processed.sessionKey,
-                          processed.ratingKey
-                        )
-                      : await cacheService!.hasTerminationCooldownComposite(
-                          server.id,
-                          userDetail.id,
-                          processed.deviceId || processed.sessionKey,
-                          processed.ratingKey
-                        );
-                  if (hasCooldown) {
-                    console.log(
-                      `[Poller] Session ${processed.sessionKey} was recently terminated, skipping stale recovery`
-                    );
-                    return null;
-                  }
+                if (await wasJustKilled(processed, sessionKey)) {
+                  console.log(
+                    `[Poller] Session ${processed.sessionKey} was recently terminated, skipping stale recovery`
+                  );
+                  return null;
                 }
 
                 // Issue #121: Plex-only duplicate check for session key reassignment.
@@ -1827,6 +1823,33 @@ async function processServerSessions(
             });
           }
 
+          if (watchedThresholdReached && activeAutomations.length > 0) {
+            try {
+              const recentSessions = await getOrFetchRecentSessions(
+                recentSessionsMap,
+                serverUserId
+              );
+              const { violations } = await dispatch(
+                sessionWatchedEvent(
+                  existingSession,
+                  pickLiveSessionFields(processed),
+                  now,
+                  { id: server.id, name: server.name, type: server.type },
+                  userDetail
+                ),
+                { activeAutomations, activeSessions: ruleEvalSessions, recentSessions }
+              );
+              if (violations.length > 0 && pubSubService) {
+                await broadcastViolations(violations, existingSession, pubSubService);
+              }
+            } catch (error) {
+              console.error(
+                `[Poller] Error dispatching watched rules for session ${existingSession.id}:`,
+                error
+              );
+            }
+          }
+
           // Build active session for cache/broadcast (with updated pause tracking values)
           const activeSession = buildActiveSession({
             session: existingSession,
@@ -1851,6 +1874,8 @@ async function processServerSessions(
         );
       }
     }
+
+    await clearKillsNotListed(currentSessionKeys);
 
     // Clear grace period tracking for sessions that are present in this poll
     for (const key of currentSessionKeys) {

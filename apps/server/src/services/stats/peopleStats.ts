@@ -6,7 +6,7 @@
  * length and meets it at the same instant.
  */
 
-import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { eq, sql, type SQL } from 'drizzle-orm';
 import {
   TIME_MS,
   type AuthUser,
@@ -18,15 +18,14 @@ import {
 } from '@tracearr/shared';
 import { db } from '../../db/client.js';
 import { serverUsers, servers } from '../../db/schema.js';
-import { countedSessionSql } from '../../constants/index.js';
-import {
-  buildMultiServerFragment,
-  buildServerAccessCondition,
-} from '../../utils/serverFiltering.js';
+import { countedSessionSql, countedViewersSql, localSessionSql } from '../../db/sessions/rules.js';
+import { buildMultiServerFragment } from '../../utils/serverFiltering.js';
 import { likePattern } from '../../utils/listQuery.js';
-import { localSessionSql } from '../../utils/localSession.js';
 import { representativeAccountOrderSql } from '../../utils/representativeAccount.js';
-import { serverUserIdAnyFragment } from '../../routes/users/queries.js';
+import {
+  identityAccountsWhere,
+  serverUserIdAnyFragment,
+} from '../../routes/users/queries/index.js';
 import { getBucketInterval } from '../../routes/stats/plays.js';
 import { computeStreaks } from '../../routes/stats/me.js';
 import {
@@ -339,7 +338,7 @@ export async function queryIdentityRangeStats(input: {
         time_bucket(${bucketInterval}::interval, s.started_at AT TIME ZONE ${timezone})::text AS date,
         ROUND(
           COUNT(DISTINCT ${CHAIN_S}) FILTER (WHERE ${countedSessionSql('s')})::numeric
-            / NULLIF(COUNT(DISTINCT su.user_id), 0),
+            / NULLIF(${countedViewersSql(countedSessionSql('s'))}, 0),
           2
         )::float8 AS count
       FROM sessions s
@@ -655,7 +654,6 @@ async function fetchIdentityServers(
 ): Promise<Map<string, { id: string; name: string }[]>> {
   const byUser = new Map<string, { id: string; name: string }[]>();
   if (userIds.length === 0) return byUser;
-  const accessCondition = buildServerAccessCondition(authUser, serverUsers.serverId);
   const rows = await db
     .selectDistinct({
       userId: serverUsers.userId,
@@ -664,12 +662,10 @@ async function fetchIdentityServers(
     })
     .from(serverUsers)
     .innerJoin(servers, eq(serverUsers.serverId, servers.id))
-    .where(and(inArray(serverUsers.userId, userIds), accessCondition));
+    .where(identityAccountsWhere(authUser, userIds));
   for (const row of rows) {
     const entry = { id: row.serverId, name: row.serverName };
-    const existing = byUser.get(row.userId);
-    if (existing) existing.push(entry);
-    else byUser.set(row.userId, [entry]);
+    byUser.getOrInsertComputed(row.userId, () => []).push(entry);
   }
   return byUser;
 }

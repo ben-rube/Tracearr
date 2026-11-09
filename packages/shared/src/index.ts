@@ -28,6 +28,9 @@ export type {
   DownloadsStats,
   UserMergeResult,
   ServerUserSplitResult,
+  OwnerLinkBlockedReason,
+  OwnerLinkCandidate,
+  OwnerLinkServer,
   MergeSuggestionIdentity,
   MergeSuggestion,
   DismissedMergeSuggestion,
@@ -101,6 +104,9 @@ export type {
   LoginMethods,
   UnitSystem,
   ImageCacheStatus,
+  StorageMountKey,
+  StorageMountIssue,
+  StorageWarning,
   // Tailscale
   TailscaleStatus,
   TailscaleExitNode,
@@ -155,6 +161,7 @@ export type {
   RateLimitStatus,
   PushEventPreference,
   PushDeliveryStatus,
+  PushSwitch,
   NotificationPreferencesWithStatus,
   EncryptedPushPayload,
   PushNotificationPayload,
@@ -201,12 +208,9 @@ export type {
   EngagementTier,
   UserBehaviorType,
   ContentEngagement,
-  TopContentEngagement,
-  ShowEngagement,
   UserEngagementProfile,
   EngagementTierBreakdown,
   EngagementStats,
-  ShowStatsResponse,
   // Device compatibility
   DeviceCompatibilityRow,
   DeviceCompatibilityResponse,
@@ -510,6 +514,8 @@ export {
   mergeSuggestionDismissalSchema,
   mergeSuggestionPairParamSchema,
   splitServerUserParamSchema,
+  ownerLinkBodySchema,
+  ownerLinkParamSchema,
   USER_SORT_FIELDS,
   userRosterFilterSchema,
   userListQuerySchema,
@@ -521,6 +527,7 @@ export {
   selfQuerySchema,
   filterOptionsQuerySchema,
   sessionIdParamSchema,
+  sessionDetailQuerySchema,
   terminateSessionBodySchema,
   // Rule
   impossibleTravelParamsSchema,
@@ -546,6 +553,7 @@ export {
   VIOLATION_SORT_FIELDS,
   violationRosterFilterSchema,
   violationQuerySchema,
+  violationCountQuerySchema,
   violationBulkBodySchema,
   violationIdParamSchema,
   // Stats
@@ -589,7 +597,6 @@ export {
   engagementTierSchema,
   userBehaviorTypeSchema,
   engagementQuerySchema,
-  showsQuerySchema,
   // Library stats
   libraryStatsQuerySchema,
   libraryStatusQuerySchema,
@@ -792,7 +799,6 @@ export type {
   ImportJobStatus,
   // Engagement tracking
   EngagementQueryInput,
-  ShowsQueryInput,
   // Library stats
   LibraryStatsQueryInput,
   LibraryStatusQueryInput,

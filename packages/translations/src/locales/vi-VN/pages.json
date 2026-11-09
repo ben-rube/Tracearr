@@ -86,6 +86,11 @@
         "seeAll": "",
         "availableThisWeek_other": ""
       },
+      "link": {
+        "title": "",
+        "description": "",
+        "action": ""
+      },
       "episodes_other": ""
     },
     "resources": {
@@ -539,7 +544,7 @@
       "quietest": "",
       "bingeHighlights": "",
       "bingeHighlightsDesc": "",
-      "bingeSessions": "",
+      "consecutivePlays": "",
       "noData": "",
       "noDataDesc": "",
       "failedToLoad": "",
@@ -550,7 +555,8 @@
           "show": "",
           "servers": "",
           "consecutive": "",
-          "bingeScore": "",
+          "people": "",
+          "episodesPerViewer": "",
           "maxPerDay": ""
         },
         "empty": {
@@ -1251,6 +1257,7 @@
         "sessionPaused": "",
         "sessionHeldFor": "",
         "sessionHeldForTotal": "",
+        "sessionWatched": "",
         "accountInactiveFor": "",
         "accountNewDevice": "",
         "accountTrustChanged": "",
@@ -2018,6 +2025,10 @@
           "description": "",
           "synonyms": ""
         },
+        "sessionWatched": {
+          "description": "",
+          "synonyms": ""
+        },
         "accountInactiveFor": {
           "label": "",
           "description": "",
@@ -2135,6 +2146,7 @@
         "reset": "",
         "tls": "",
         "http": "",
+        "relay": "",
         "unknown": ""
       },
       "connectionsReachable": "",
@@ -2795,6 +2807,7 @@
         "libraryAll": "",
         "yearFromLabel": "",
         "yearToLabel": "",
+        "addedLabel": "",
         "sizeGbMinLabel": "",
         "sizeGbMaxLabel": "",
         "sizeChipAtLeast": "",

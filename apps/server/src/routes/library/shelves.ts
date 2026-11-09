@@ -33,12 +33,13 @@ import { resolveServerIds } from '../../utils/serverFiltering.js';
 import { uuidArraySql } from '../../utils/sqlArrays.js';
 import {
   albumCountSql,
-  buildValueRollupCte,
   pickBestResolution,
   buildCatalogPageQuery,
   buildPosterOrderFragment,
   posterFor,
+  rowDecorationsSql,
 } from './catalog.js';
+import { buildValueRollupCte } from './queries.js';
 import {
   fetchEpisodeCounts,
   resolveWatchedStates,
@@ -50,6 +51,7 @@ import {
   libraryFragment,
   seesServerActivity,
   type Scope,
+  serverCacheSegment,
 } from '../../lib/scope.js';
 import { resolveDateRange, type DateRange } from '../stats/utils.js';
 import {
@@ -235,18 +237,7 @@ async function fetchShowShelf(
     )
     SELECT m.id, m.media_type, m.title, m.year, m.genres, m.normalized_title, m.latest_added_at,
            ae.new_episodes, ae.added_at,
-      (SELECT json_agg(json_build_object(
-          'serverId', li.server_id, 'addedAt', li.created_at,
-          'videoResolution', li.video_resolution, 'fileSize', li.file_size,
-          'versionCount', li.version_count)
-          ORDER BY li.created_at DESC)
-       FROM library_items li
-       WHERE li.media_id = m.id AND li.removed_at IS NULL ${serverFragmentLi}) AS servers,
-      (SELECT json_build_object('thumbPath', li.thumb_path, 'dominantColor', li.dominant_color,
-                                'serverId', li.server_id)
-       FROM library_items li
-       WHERE li.media_id = m.id AND li.removed_at IS NULL AND li.thumb_path IS NOT NULL ${serverFragmentLi}
-       ${posterOrderFragment} LIMIT 1) AS poster_copy
+      ${rowDecorationsSql('m', serverFragmentLi, posterOrderFragment)}
     FROM added_episodes ae
     JOIN media m ON m.id = ae.show_id AND m.merged_into_id IS NULL
     ORDER BY ae.added_at DESC
@@ -331,18 +322,7 @@ async function fetchMostPopular(
   const posterOrderFragment = buildPosterOrderFragment(preferredPosterServerId);
   const detailResult = await db.execute(sql`
     SELECT m.id, m.media_type, m.title, m.year, m.genres, m.normalized_title, m.latest_added_at,
-      (SELECT json_agg(json_build_object(
-          'serverId', li.server_id, 'addedAt', li.created_at,
-          'videoResolution', li.video_resolution, 'fileSize', li.file_size,
-          'versionCount', li.version_count)
-          ORDER BY li.created_at DESC)
-       FROM library_items li
-       WHERE li.media_id = m.id AND li.removed_at IS NULL ${serverFragmentLi}) AS servers,
-      (SELECT json_build_object('thumbPath', li.thumb_path, 'dominantColor', li.dominant_color,
-                                'serverId', li.server_id)
-       FROM library_items li
-       WHERE li.media_id = m.id AND li.removed_at IS NULL AND li.thumb_path IS NOT NULL ${serverFragmentLi}
-       ${posterOrderFragment} LIMIT 1) AS poster_copy
+      ${rowDecorationsSql('m', serverFragmentLi, posterOrderFragment)}
       ${type === 'artist' ? sql`, ${albumCountSql(sql`m.id`, serverFragmentLi)} AS album_count` : sql``}
     FROM media m
     WHERE m.id = ANY(${uuidArraySql(ids)}) AND m.merged_into_id IS NULL
@@ -480,18 +460,7 @@ async function fetchDeadWeight(
   const posterOrderFragment = buildPosterOrderFragment(preferredPosterServerId);
   const detailResult = await db.execute(sql`
     SELECT m.id, m.media_type, m.title, m.year, m.genres, m.normalized_title, m.latest_added_at,
-      (SELECT json_agg(json_build_object(
-          'serverId', li.server_id, 'addedAt', li.created_at,
-          'videoResolution', li.video_resolution, 'fileSize', li.file_size,
-          'versionCount', li.version_count)
-          ORDER BY li.created_at DESC)
-       FROM library_items li
-       WHERE li.media_id = m.id AND li.removed_at IS NULL ${serverFragmentLi}) AS servers,
-      (SELECT json_build_object('thumbPath', li.thumb_path, 'dominantColor', li.dominant_color,
-                                'serverId', li.server_id)
-       FROM library_items li
-       WHERE li.media_id = m.id AND li.removed_at IS NULL AND li.thumb_path IS NOT NULL ${serverFragmentLi}
-       ${posterOrderFragment} LIMIT 1) AS poster_copy
+      ${rowDecorationsSql('m', serverFragmentLi, posterOrderFragment)}
     FROM media m
     WHERE m.id = ANY(${uuidArraySql(ids)}) AND m.merged_into_id IS NULL
   `);
@@ -875,9 +844,7 @@ export const libraryShelvesRoute: FastifyPluginAsync = async (app) => {
       // per shelf.
       const preferredPosterServerId = await getSetting('preferredPosterServerId');
 
-      const serverCacheKey =
-        (resolvedIds !== undefined ? [...resolvedIds].sort().join(',') : 'all') +
-        libraryCacheSegment(request.scope);
+      const serverCacheKey = serverCacheSegment(resolvedIds) + libraryCacheSegment(request.scope);
       const periodCacheKey =
         period === 'custom'
           ? `custom:${dateRange.start?.toISOString() ?? 'none'}:${dateRange.end.toISOString()}`
@@ -899,8 +866,9 @@ export const libraryShelvesRoute: FastifyPluginAsync = async (app) => {
       // lost, and those move to recentlyUpdated, which a v7 payload lacks.
       // v10: recentlyAddedAlbums, mostPlayedArtists and the music meta counts.
       // v11: album rows carry posterVersion, and artist and album art is square.
+      // v12: the day window and viewer counts changed.
       const cacheKey = buildLibraryCacheKey(
-        `${REDIS_KEYS.LIBRARY_SHELVES}:v11`,
+        `${REDIS_KEYS.LIBRARY_SHELVES}:v12`,
         serverCacheKey,
         periodCacheKey,
         undefined,
